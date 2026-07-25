@@ -7,13 +7,13 @@ export function StartOverlay({ onStart }) {
         <div className="sun-core" />
       </div>
       <section className="start-card">
-        <div className="start-eyebrow">A live-written 3D narrative</div>
+        <div className="start-eyebrow">A live-built 3D adventure</div>
         <h1>LUMENWAKE</h1>
         <p>
-          The sun has been missing for 113 years. Your lantern can turn memories into reality, and the drowned city changes its story around every decision you make.
+          The last city is a fortress train trapped in the same night. You carry the Atlas Key, a machine that makes described routes real. DeepSeek can build new stations, strangers, hazards, and side paths around the choices you make.
         </p>
-        <button type="button" onClick={onStart}>Wake the lantern</button>
-        <small>Headphones recommended · no account required · offline story fallback included</small>
+        <button type="button" onClick={onStart}>Board the Night Engine</button>
+        <small>WASD exploration · live world generation with Fireworks · complete offline campaign included</small>
       </section>
     </div>
   );

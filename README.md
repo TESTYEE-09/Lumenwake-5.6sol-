@@ -1,36 +1,65 @@
-# Lumenwake
+# Lumenwake: The Night Engine
 
-A browser-based first-person 3D narrative game where DeepSeek V4 Flash writes each story beat around the player’s current location, inventory, relationships, and previous choices. Live generation runs through Fireworks AI on the server, never from the browser.
+A browser-based first-person 3D adventure where DeepSeek V4 Flash reacts to the player and safely changes the playable world in real time.
 
 ## The game
 
-The sun disappeared 113 years ago. Lumenwake survives under permanent artificial twilight, powered by a machine built around a stolen star. The player carries a lantern that can turn memories into reality, but every use changes what the city remembers.
+The last human city is no longer a city. It is **Lumenwake**, a fortress train trapped inside the same endless night while a reality-erasing storm called **The Blank** eats every route behind it.
 
-The playable slice includes:
+You play a Routebreaker carrying the Atlas Key, a machine that can make described paths, objects, hazards, and people become real. The train is running out of track. Captain Mara Vey wants control, smuggler Quill Rook wants freedom, Passenger Zero claims the train has already died once, and the Night Engine is beginning to speak.
 
-- A full start-to-ending route through a procedural low-poly 3D world
-- Three meaningful branching decisions
-- Multiple win states and a lose state
-- Warden Ilyra and Venn the Moth Archivist, with tracked relationships
-- Persistent world changes, gates, atmosphere, inventory, health, objectives, journal beats, and a minimap
-- Server-side Fireworks streaming with compact story state
-- DeepSeek V4 Flash through `accounts/fireworks/models/deepseek-v4-flash`
-- A deterministic offline story director, so the game remains playable without an API key
-- Procedural ambient music and sound effects using Web Audio, with no licensed assets
+The campaign includes:
 
-## Requirements
+- A complete start-to-ending route built around exploration and choices
+- Three major branching decisions and multiple endings
+- A procedural low-poly fortress train, storm, stations, engine spaces, and generated world pieces
+- Dynamic NPCs, structures, pickups, hazards, lights, weather, routes, and interactions
+- Health, inventory, relationships, objectives, a journal, a minimap, and visible world-state changes
+- Procedural music and sound effects with no licensed assets
+- A full offline fallback campaign when live generation is unavailable
 
-- Node.js 18 or newer
-- A Fireworks AI API key for live-generated narrative
+## Live runtime world director
+
+DeepSeek does not execute arbitrary JavaScript or rewrite the React application while it is running. Instead, it returns a restricted set of **world operations** that the game validates before applying.
+
+Supported operations include:
+
+- Spawn or transform structures
+- Spawn NPCs with names and roles
+- Add pickups and interactable objects
+- Create damaging hazards and collision boundaries
+- Change lighting, weather, and ambience
+- Add journal entries and optional interactions
+- Remove previously generated entities
+
+Every operation is clamped to safe positions, sizes, counts, behaviours, and action identifiers. Invalid output is discarded, and canonical progression remains available so a generated response cannot permanently break the playthrough.
+
+## Fireworks and DeepSeek
+
+Live generation uses Fireworks AI with:
+
+```text
+accounts/fireworks/models/deepseek-v4-flash
+```
+
+On GitHub Pages, the game asks for the player’s own Fireworks API key on first launch. The key is stored in that browser’s local storage and sent directly from the browser to Fireworks. It is not committed to the repository.
+
+Do not save a key on a shared device. A browser-entered key is visible to the person controlling that browser and its developer tools. For stronger key isolation, deploy the included Express backend and keep `FIREWORKS_API_KEY` only on that server.
 
 ## Local setup
+
+Requirements:
+
+- Node.js 18 or newer
+- A Fireworks API key for live generation, or offline mode
 
 ```bash
 npm install
 cp .env.example .env
+npm run dev
 ```
 
-Open `.env` and add your Fireworks key:
+For the server-side setup, place this in `.env`:
 
 ```env
 FIREWORKS_API_KEY=your_key_here
@@ -38,45 +67,27 @@ FIREWORKS_MODEL=accounts/fireworks/models/deepseek-v4-flash
 PORT=8787
 ```
 
-Create a key from the Fireworks AI dashboard at `https://app.fireworks.ai/`.
-
-## Run locally
-
-```bash
-npm run dev
-```
-
 Open `http://localhost:5173`.
 
-`npm run dev` starts both:
-
-- Vite frontend on port 5173
-- Express story server on port 8787
-
-## Production server
+## Production
 
 ```bash
 npm run build
 npm start
 ```
 
-The Express server serves the generated `dist` folder and the `/api/story` endpoint from the same origin.
+The Express server serves the built frontend and `/api/story` from the same origin.
 
 ## GitHub Pages
 
-The repository includes `.github/workflows/deploy-pages.yml`. It builds and deploys the frontend whenever `main` changes.
+The Pages workflow in `.github/workflows/deploy-pages.yml` builds and publishes the frontend whenever `main` changes.
 
-GitHub Pages cannot run Express or safely store `FIREWORKS_API_KEY`. The Pages version therefore uses the complete browser-side offline director by default. It is still playable from start to every ending.
+The hosted game works in two modes:
 
-To connect the Pages frontend to a separately hosted backend:
+1. Enter a personal Fireworks key to enable live DeepSeek narrative and runtime world generation.
+2. Choose offline mode to play the complete authored fallback campaign.
 
-1. Deploy this repository’s Express server to a Node host.
-2. Add `FIREWORKS_API_KEY` to that host, not GitHub Pages.
-3. In the GitHub repository, open **Settings → Secrets and variables → Actions → Variables**.
-4. Add `VITE_STORY_API_URL` containing the public backend origin, such as `https://lumenwake-api.example.com`.
-5. Run the Pages workflow again.
-
-Because this repository is private, GitHub Pages requires GitHub Pro, Team, or Enterprise. Alternatively, make the repository public.
+A separately hosted Express backend can be connected by adding a repository Actions variable named `VITE_STORY_API_URL` containing the backend origin.
 
 ## Controls
 
@@ -84,55 +95,34 @@ Because this repository is private, GitHub Pages requires GitHub Pro, Team, or E
 - Mouse: look
 - `Shift`: sprint
 - `E`: interact
-- Click the 3D world: capture the mouse
-- Choice screens automatically release the mouse so buttons remain usable
-
-## Story architecture
-
-The client sends only compact running state to `/api/story`:
-
-- Current phase and location
-- Health and inventory
-- NPC relationships
-- Important world flags
-- A short rolling summary and the last three beats
-
-The Express server calls the Fireworks OpenAI-compatible endpoint with streaming enabled. DeepSeek V4 Flash can rewrite narration, dialogue, the current objective wording, and ambient mood. Canonical progression and effects are validated server-side, preventing malformed model output from making the game impossible to finish.
-
-If the key is missing, the request fails, or the model returns invalid output, the server streams a local canonical beat instead. The API key never reaches the browser.
-
-## Environment variables
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `FIREWORKS_API_KEY` | none | Server-only Fireworks key |
-| `FIREWORKS_MODEL` | `accounts/fireworks/models/deepseek-v4-flash` | Fireworks model identifier |
-| `FIREWORKS_OFFLINE` | `false` | Force the server’s offline fallback |
-| `PORT` | `8787` | Express server port |
-| `VITE_STORY_API_URL` | same origin | Public backend origin used by the frontend |
+- Click the world: capture the mouse
+- Choice screens release the mouse automatically
 
 ## Project structure
 
 ```text
 server/
-  index.js             Express API, Fireworks SSE streaming, static production hosting
-  storyEngine.js       World lore, canonical beats, state compaction, validation
+  index.js             Express API, Fireworks streaming, production hosting
+  storyEngine.js       Campaign, prompts, validation, canonical fallback
 src/
-  components/          HUD, choices, title screen, ending screen
+  components/          HUD, title, key, choice, and ending screens
   game/
-    World.jsx          Procedural R3F world and reactive world state
+    World.jsx          Fortress-train world and runtime entity renderer
+    runtimeWorld.js    Validated world-operation state and colliders
     PlayerController.jsx
+    useStoryGame.js    Story, choices, Fireworks streaming, effects, runtime state
     audio.js           Procedural Web Audio soundtrack
-    useStoryGame.js    Story state, SSE client, effects, branching, Pages fallback
   App.jsx
-.github/workflows/
-  deploy-pages.yml     Vite build and GitHub Pages deployment
+  styles.css
+  runtime-world.css
 ```
 
-## Security
+## Safety and reliability
 
 - `.env` is ignored by Git
-- The Fireworks key is read only by Express
-- The browser calls `/api/story`, never Fireworks directly
-- GitHub Pages receives no API key
-- Model-generated state is restricted and merged with server-owned canonical effects
+- Server deployments keep their Fireworks key server-side
+- Pages keys are stored only in the player’s browser
+- Model-generated world operations are allow-listed and validated
+- Entity counts, coordinates, scale, damage, text, and action IDs are limited
+- The model cannot access the DOM or execute generated JavaScript
+- Invalid or unavailable live responses fall back to the complete local director

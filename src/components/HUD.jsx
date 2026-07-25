@@ -1,12 +1,14 @@
 export function HUD({ game, focus, position, muted, hasFireworksKey, onToggleMute, onOpenApiKey }) {
   const latest = game.log.at(-1);
   const healthPercent = Math.max(0, Math.min(100, game.health));
+  const journalEntry = game.runtime?.journal?.at(-1);
+  const generatedCount = (game.runtime?.entities?.length || 0) + (game.runtime?.hazards?.length || 0);
 
   return (
     <div className="hud" aria-live="polite">
       <section className="status-panel glass-panel">
         <div className="eyebrow-row">
-          <span>LUMENWAKE</span>
+          <span>LUMENWAKE · NIGHT ENGINE</span>
           <span className={`mode-badge mode-${game.apiMode}`}>{modeLabel(game.apiMode)}</span>
         </div>
         <h1>{game.objective}</h1>
@@ -16,16 +18,23 @@ export function HUD({ game, focus, position, muted, hasFireworksKey, onToggleMut
           <strong>{game.health}</strong>
         </div>
         <div className="inventory-row">
-          <span className="tiny-label">Lantern inventory</span>
+          <span className="tiny-label">Route inventory</span>
           <div className="chips">
             {game.inventory.length ? game.inventory.map((item) => <span className="chip" key={item}>{item}</span>) : <span className="empty-chip">Empty</span>}
+            <span className="chip">World edits {generatedCount}</span>
           </div>
         </div>
+        {journalEntry && (
+          <div className="route-journal">
+            <strong>{journalEntry.title}</strong>
+            <span>{journalEntry.text}</span>
+          </div>
+        )}
       </section>
 
-      <section className="map-panel glass-panel" aria-label="Minimap">
+      <section className="map-panel glass-panel" aria-label="Route map">
         <div className="map-title">
-          <span>Memory map</span>
+          <span>Live route</span>
           <div className="map-actions">
             <button type="button" onClick={onToggleMute}>{muted ? 'Sound off' : 'Sound on'}</button>
             <button type="button" onClick={onOpenApiKey}>{hasFireworksKey ? 'API key' : 'Add key'}</button>
@@ -33,10 +42,10 @@ export function HUD({ game, focus, position, muted, hasFireworksKey, onToggleMut
         </div>
         <div className="minimap">
           <div className="map-path" />
-          <MapMarker x={50} y={10} label="Jetty" active={game.phase <= 1} />
-          <MapMarker x={50} y={38} label="Observatory" active={game.phase >= 2 && game.phase <= 4} />
-          <MapMarker x={50} y={69} label="Archive" active={game.phase === 5 || game.phase === 6} />
-          <MapMarker x={50} y={91} label="Lens" active={game.phase >= 7} />
+          <MapMarker x={50} y={10} label="Rear deck" active={game.phase <= 1} />
+          <MapMarker x={50} y={38} label="Signal yard" active={game.phase >= 2 && game.phase <= 4} />
+          <MapMarker x={50} y={69} label="Unwritten Station" active={game.phase === 5} />
+          <MapMarker x={50} y={91} label="Night Engine" active={game.phase >= 6} />
           <div
             className="player-dot"
             style={{
@@ -45,19 +54,19 @@ export function HUD({ game, focus, position, muted, hasFireworksKey, onToggleMut
             }}
           />
         </div>
-        <div className="location-readout">{game.location}</div>
+        <div className="location-readout">{game.location} · {weatherLabel(game.runtime?.weather)}</div>
       </section>
 
       <section className={`story-panel glass-panel ${game.loading ? 'is-loading' : ''}`}>
         <div className="story-heading">
-          <span>{game.loading ? 'The world is rewriting…' : latest?.speaker ?? 'The Lantern'}</span>
+          <span>{game.loading ? 'The route is compiling…' : latest?.speaker ?? 'Atlas Key'}</span>
           {game.loading && <span className="thinking-dots"><i /><i /><i /></span>}
         </div>
-        <p className="narration">{game.loading ? game.streamText || 'Listening to the city…' : latest?.narration || 'The sea waits above and below you.'}</p>
+        <p className="narration">{game.loading ? game.streamText || 'The Blank is deciding what becomes real…' : latest?.narration || 'The train waits above a world that has not been written yet.'}</p>
         {!game.loading && latest?.dialogue && <blockquote>{latest.dialogue}</blockquote>}
         {game.warning && <div className="warning">{game.warning}</div>}
         {game.choices.length > 0 && (
-          <div className="choice-note">Your next choice will permanently alter this playthrough.</div>
+          <div className="choice-note">This choice changes the route, characters, and objects that can exist later.</div>
         )}
       </section>
 
@@ -65,7 +74,7 @@ export function HUD({ game, focus, position, muted, hasFireworksKey, onToggleMut
         <div className="interaction-prompt"><kbd>E</kbd><span>{focus.label}</span></div>
       )}
 
-      {!game.choices.length && !game.ending && <div className="controls-hint">WASD move · mouse look · Shift sprint · E interact · click world to capture mouse</div>}
+      {!game.choices.length && !game.ending && <div className="controls-hint">WASD move · mouse look · Shift sprint · E interact · avoid generated hazards</div>}
       <div className="crosshair" aria-hidden="true"><span /><span /></div>
     </div>
   );
@@ -76,9 +85,13 @@ function MapMarker({ x, y, label, active }) {
 }
 
 function modeLabel(mode) {
-  if (mode === 'fireworks-personal') return 'Personal Fireworks';
-  if (mode === 'fireworks') return 'Fireworks live';
-  if (mode === 'pages-offline') return 'Pages offline';
-  if (mode === 'offline') return 'Offline story';
+  if (mode === 'fireworks-personal') return 'Live world director';
+  if (mode === 'fireworks') return 'Server world director';
+  if (mode === 'pages-offline') return 'Handcrafted route';
+  if (mode === 'offline') return 'Fallback route';
   return 'Connecting';
+}
+
+function weatherLabel(weather) {
+  return String(weather || 'electric_storm').replace(/_/g, ' ');
 }

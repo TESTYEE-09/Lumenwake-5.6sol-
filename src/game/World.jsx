@@ -3,59 +3,69 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { PlayerController } from './PlayerController.jsx';
+import { runtimeInteractions } from './runtimeWorld.js';
 
-const INTERACTIONS = [
-  { phase: 1, id: 'observatory', action: 'approach_observatory', label: 'Enter the drowned observatory', position: [0, 0, -9.5] },
-  { phase: 2, id: 'ember', action: 'take_ember', label: 'Take the ember shard', position: [-5.8, 0, -16.2] },
-  { phase: 3, id: 'warden', action: 'talk_warden', label: 'Speak with Warden Ilyra', position: [5.2, 0, -17.2] },
-  { phase: 4, id: 'archiveGate', action: 'enter_archive', label: 'Descend into the forbidden archive', position: [0, 0, -25.7] },
-  { phase: 5, id: 'pool', action: 'touch_memory_pool', label: 'Touch the memory pool', position: [0, 0, -33.3] },
-  { phase: 6, id: 'lens', action: 'reach_solar_lens', label: 'Approach the Solar Lens', position: [0, 0, -40.4] },
+const CORE_INTERACTIONS = [
+  { phase: 1, id: 'signal', action: 'approach_signal', label: 'Restart the signal spire', position: [0, 0, -9.5] },
+  { phase: 2, id: 'atlas', action: 'take_atlas', label: 'Take the Atlas Key', position: [-5.8, 0, -16.2] },
+  { phase: 4, id: 'stationGate', action: 'enter_blank_station', label: 'Enter the Unwritten Station', position: [0, 0, -25.7] },
+  { phase: 5, id: 'routeHeart', action: 'take_route_heart', label: 'Take the Route Heart', position: [0, 0, -33.3] },
+  { phase: 6, id: 'engine', action: 'reach_night_engine', label: 'Enter the Night Engine', position: [0, 0, -40.4] },
 ];
 
-export function World({ game, onFocus, onPosition }) {
+export function World({ game, onFocus, onPosition, onHazard }) {
   return (
     <Canvas
       shadows
-      dpr={[1, 1.75]}
-      camera={{ fov: 68, near: 0.1, far: 180, position: [0, 1.72, 5.5] }}
+      dpr={[1, 1.7]}
+      camera={{ fov: 68, near: 0.1, far: 190, position: [0, 1.72, 5.5] }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
     >
-      <WorldScene game={game} onFocus={onFocus} onPosition={onPosition} />
+      <WorldScene game={game} onFocus={onFocus} onPosition={onPosition} onHazard={onHazard} />
     </Canvas>
   );
 }
 
-function WorldScene({ game, onFocus, onPosition }) {
+function WorldScene({ game, onFocus, onPosition, onHazard }) {
   const { camera, scene } = useThree();
   const focusRef = useRef(null);
   const targetColor = useMemo(() => new THREE.Color(), []);
+  const interactions = useMemo(
+    () => [
+      ...CORE_INTERACTIONS.filter((interaction) => interaction.phase === game.phase),
+      ...runtimeInteractions(game.runtime),
+    ],
+    [game.phase, game.runtime],
+  );
 
   useEffect(() => {
-    scene.background = new THREE.Color('#090b18');
-    scene.fog = new THREE.FogExp2('#0d1025', 0.026);
+    scene.background = new THREE.Color('#050712');
+    scene.fog = new THREE.FogExp2('#090d20', 0.025);
   }, [scene]);
 
   useFrame((_state, delta) => {
     targetColor.set(moodColor(game.skyMood));
-    scene.background.lerp(targetColor, Math.min(1, delta * 0.65));
-    scene.fog.color.lerp(targetColor, Math.min(1, delta * 0.5));
+    scene.background.lerp(targetColor, Math.min(1, delta * 0.72));
+    scene.fog.color.lerp(targetColor, Math.min(1, delta * 0.55));
 
     if (game.loading || game.choices.length || game.ending) {
       setFocus(null);
       return;
     }
 
-    const interaction = INTERACTIONS.find((item) => item.phase === game.phase);
-    if (!interaction) {
-      setFocus(null);
-      return;
+    let nearest = null;
+    let nearestDistance = Infinity;
+    for (const interaction of interactions) {
+      const distance = Math.hypot(
+        camera.position.x - interaction.position[0],
+        camera.position.z - interaction.position[2],
+      );
+      if (distance < 3.25 && distance < nearestDistance) {
+        nearest = interaction;
+        nearestDistance = distance;
+      }
     }
-
-    const dx = camera.position.x - interaction.position[0];
-    const dz = camera.position.z - interaction.position[2];
-    const distance = Math.hypot(dx, dz);
-    setFocus(distance < 3.25 ? interaction : null);
+    setFocus(nearest);
   });
 
   function setFocus(next) {
@@ -64,95 +74,120 @@ function WorldScene({ game, onFocus, onPosition }) {
     onFocus(next);
   }
 
+  const weather = game.runtime?.weather || 'electric_storm';
+
   return (
     <>
-      <ambientLight intensity={0.42} />
-      <hemisphereLight args={['#98b7ff', '#130f25', 0.65]} />
+      <ambientLight intensity={weather === 'whiteout' ? 0.68 : 0.32} />
+      <hemisphereLight args={['#8bb8ff', '#140f25', 0.6]} />
       <directionalLight
         castShadow
-        intensity={1.45}
-        color={game.skyMood === 'dawn' ? '#ffd4a3' : '#9ea8ff'}
-        position={[9, 17, 6]}
+        intensity={game.skyMood === 'dawn' ? 2.3 : 1.35}
+        color={game.skyMood === 'dawn' ? '#ffd39a' : '#a2b3ff'}
+        position={[8, 17, 7]}
         shadow-mapSize={[1024, 1024]}
-        shadow-camera-far={70}
-        shadow-camera-left={-25}
-        shadow-camera-right={25}
+        shadow-camera-far={75}
+        shadow-camera-left={-26}
+        shadow-camera-right={26}
         shadow-camera-top={25}
-        shadow-camera-bottom={-50}
+        shadow-camera-bottom={-55}
       />
-      <pointLight color="#73e9ff" intensity={7} distance={18} position={[0, 3, -33]} />
-      <pointLight color="#ffb15f" intensity={game.flags.emberTaken ? 3 : 7} distance={15} position={[-6, 2.4, -16]} />
+      <pointLight color="#67e6ff" intensity={5} distance={22} position={[0, 4, -14]} />
+      <pointLight color="#ff587d" intensity={game.phase >= 6 ? 8 : 2} distance={18} position={[0, 4, -41]} />
 
-      <Stars radius={90} depth={40} count={1300} factor={2.4} saturation={0.25} fade speed={0.25} />
-      <Sparkles count={90} scale={[28, 9, 55]} position={[0, 3, -18]} size={1.2} speed={0.16} opacity={0.55} color="#9de9ff" />
-      {game.skyMood === 'moths' && (
-        <Sparkles count={160} scale={[18, 8, 26]} position={[0, 2, -22]} size={2.6} speed={0.55} opacity={0.85} color="#fff4c7" />
-      )}
+      <Stars radius={92} depth={42} count={1500} factor={2.3} saturation={0.2} fade speed={0.28} />
+      <WeatherParticles weather={weather} />
 
-      <Sea mood={game.skyMood} />
-      <Causeway />
-      <Observatory game={game} />
-      <Archive game={game} />
-      <SolarLens game={game} />
-      <DistantRuins />
-      <InteractionBeacons game={game} />
-      <PlayerController game={game} onPosition={onPosition} />
+      <TheBlank mood={game.skyMood} />
+      <RailCauseway />
+      <RearDeck />
+      <SignalYard game={game} />
+      <UnwrittenStation game={game} />
+      <NightEngine game={game} />
+      <DistantTrainCity />
+      <RuntimeWorld runtime={game.runtime} />
+      <InteractionBeacons interactions={interactions} />
+      <PlayerController game={game} onPosition={onPosition} onHazard={onHazard} />
     </>
   );
 }
 
-function Sea({ mood }) {
+function WeatherParticles({ weather }) {
+  const settings = {
+    electric_storm: { count: 120, color: '#75eaff', speed: 0.55, size: 1.3 },
+    hard_rain: { count: 190, color: '#8abfff', speed: 1.1, size: 0.9 },
+    reverse_rain: { count: 170, color: '#c18cff', speed: 0.85, size: 1.2 },
+    whiteout: { count: 250, color: '#ffffff', speed: 0.4, size: 2 },
+    still: { count: 55, color: '#ffd998', speed: 0.12, size: 1.5 },
+    overdrive: { count: 230, color: '#54ddff', speed: 1.5, size: 1.2 },
+    clear_lane: { count: 70, color: '#d9f7ff', speed: 0.22, size: 1.1 },
+    sunrise: { count: 90, color: '#ffd47e', speed: 0.18, size: 1.4 },
+    perfect_stillness: { count: 30, color: '#a9c9ff', speed: 0.05, size: 1 },
+    many_roads: { count: 180, color: '#a8f5ff', speed: 0.35, size: 1.5 },
+  }[weather] || { count: 100, color: '#75eaff', speed: 0.4, size: 1.2 };
+
+  return (
+    <Sparkles
+      count={settings.count}
+      scale={[30, 12, 62]}
+      position={[0, 4, -19]}
+      size={settings.size}
+      speed={settings.speed}
+      opacity={0.72}
+      color={settings.color}
+    />
+  );
+}
+
+function TheBlank({ mood }) {
   const material = useRef();
   useFrame((state) => {
     if (!material.current) return;
-    material.current.emissiveIntensity = 0.18 + Math.sin(state.clock.elapsedTime * 0.45) * 0.04;
+    material.current.emissiveIntensity = 0.13 + Math.sin(state.clock.elapsedTime * 0.5) * 0.04;
   });
   return (
-    <mesh rotation-x={-Math.PI / 2} position={[0, -1.15, -18]} receiveShadow>
-      <planeGeometry args={[150, 150, 60, 60]} />
+    <mesh rotation-x={-Math.PI / 2} position={[0, -2.2, -18]} receiveShadow>
+      <planeGeometry args={[170, 170, 50, 50]} />
       <meshStandardMaterial
         ref={material}
-        color={mood === 'dawn' ? '#31547a' : '#080c1b'}
-        emissive={mood === 'ruin' ? '#7a214d' : '#17204a'}
-        roughness={0.28}
-        metalness={0.55}
+        color={mood === 'dawn' ? '#7e91a8' : '#e6e8ef'}
+        emissive={mood === 'blank' ? '#ffffff' : '#58647e'}
+        roughness={0.82}
+        metalness={0.08}
         transparent
-        opacity={0.94}
+        opacity={mood === 'dawn' ? 0.45 : 0.7}
       />
     </mesh>
   );
 }
 
-function Causeway() {
-  const stones = useMemo(
-    () => Array.from({ length: 25 }, (_, index) => ({
-      z: 5 - index * 1.9,
-      x: Math.sin(index * 1.7) * 0.17,
-      rotation: Math.sin(index) * 0.035,
-      scale: 0.92 + (index % 3) * 0.04,
+function RailCauseway() {
+  const ties = useMemo(
+    () => Array.from({ length: 34 }, (_, index) => ({
+      z: 7 - index * 1.55,
+      x: Math.sin(index * 1.9) * 0.08,
+      angle: Math.sin(index * 0.8) * 0.018,
     })),
     [],
   );
-
   return (
     <group>
-      {stones.map((stone, index) => (
-        <mesh
-          key={index}
-          castShadow
-          receiveShadow
-          position={[stone.x, -0.42, stone.z]}
-          rotation={[0, stone.rotation, 0]}
-          scale={[3.7 * stone.scale, 0.55, 1.55]}
-        >
+      {ties.map((tie, index) => (
+        <mesh key={index} castShadow receiveShadow position={[tie.x, -0.46, tie.z]} rotation={[0, tie.angle, 0]} scale={[4.8, 0.35, 0.7]}>
           <boxGeometry />
-          <meshStandardMaterial color={index % 2 ? '#30354d' : '#3a3e56'} roughness={0.92} />
+          <meshStandardMaterial color={index % 2 ? '#3b3541' : '#49414c'} roughness={0.94} />
         </mesh>
       ))}
       {[-1, 1].map((side) => (
-        <group key={side} position={[side * 3.35, 0, -18]}>
+        <mesh key={side} castShadow position={[side * 1.7, -0.07, -18.5]} scale={[0.16, 0.16, 54]}>
+          <boxGeometry />
+          <meshStandardMaterial color="#a5b1c4" metalness={0.92} roughness={0.2} />
+        </mesh>
+      ))}
+      {[-1, 1].map((side) => (
+        <group key={`posts-${side}`} position={[side * 3.45, 0, -19]}>
           {Array.from({ length: 8 }, (_, index) => (
-            <LanternPost key={index} position={[0, 0, 12 - index * 7]} scale={index % 2 ? 0.85 : 1} />
+            <SignalLamp key={index} position={[0, 0, 19 - index * 7.2]} color={index % 3 === 0 ? '#ff607f' : '#65e6ff'} />
           ))}
         </group>
       ))}
@@ -160,266 +195,434 @@ function Causeway() {
   );
 }
 
-function LanternPost({ position, scale = 1 }) {
+function SignalLamp({ position, color }) {
   return (
-    <group position={position} scale={scale}>
-      <mesh castShadow position={[0, 0.8, 0]}>
-        <cylinderGeometry args={[0.08, 0.13, 2.3, 6]} />
-        <meshStandardMaterial color="#1b1d2c" metalness={0.75} roughness={0.32} />
+    <group position={position}>
+      <mesh castShadow position={[0, 0.9, 0]}>
+        <cylinderGeometry args={[0.07, 0.12, 2.4, 6]} />
+        <meshStandardMaterial color="#181b27" metalness={0.8} roughness={0.3} />
       </mesh>
-      <Float speed={1.5} rotationIntensity={0.08} floatIntensity={0.2}>
-        <mesh position={[0, 2.05, 0]}>
-          <octahedronGeometry args={[0.28, 0]} />
-          <meshStandardMaterial color="#b9f4ff" emissive="#5eeaff" emissiveIntensity={3.5} />
+      <Float speed={1.25} rotationIntensity={0.05} floatIntensity={0.12}>
+        <mesh position={[0, 2.12, 0]}>
+          <boxGeometry args={[0.42, 0.52, 0.28]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3.2} />
         </mesh>
       </Float>
     </group>
   );
 }
 
-function Observatory({ game }) {
+function RearDeck() {
+  return (
+    <group position={[0, 0, 3.2]}>
+      <mesh receiveShadow position={[0, -0.55, 0]} scale={[10, 0.8, 5.2]}>
+        <boxGeometry />
+        <meshStandardMaterial color="#252a3b" roughness={0.88} />
+      </mesh>
+      <mesh castShadow position={[0, 2.1, 3.8]} scale={[7, 4.4, 1]}>
+        <boxGeometry />
+        <meshStandardMaterial color="#121622" metalness={0.4} roughness={0.55} />
+      </mesh>
+      <mesh position={[0, 2.15, 3.25]} scale={[3.8, 1.5, 0.16]}>
+        <planeGeometry />
+        <meshStandardMaterial color="#142c44" emissive="#4bdfff" emissiveIntensity={1.5} />
+      </mesh>
+    </group>
+  );
+}
+
+function SignalYard({ game }) {
   return (
     <group position={[0, 0, -15]}>
-      <mesh receiveShadow position={[0, -0.55, 0]} scale={[16, 0.9, 12]}>
-        <cylinderGeometry args={[1, 1.15, 1, 8]} />
-        <meshStandardMaterial color="#252a40" roughness={0.88} />
-      </mesh>
-      {[-1, 1].map((side) => (
-        <group key={side} position={[side * 9.7, 0, 0]}>
-          {[-4.8, 0, 4.8].map((z) => (
-            <mesh key={z} castShadow position={[0, 2, z]}>
-              <cylinderGeometry args={[0.55, 0.8, 5, 6]} />
-              <meshStandardMaterial color="#343950" roughness={0.82} />
-            </mesh>
-          ))}
-        </group>
-      ))}
-      <mesh castShadow position={[0, 4.5, -1]} rotation={[0, 0, Math.PI / 2]}>
-        <torusGeometry args={[5.4, 0.34, 7, 32, Math.PI]} />
-        <meshStandardMaterial color="#4e5675" metalness={0.25} roughness={0.7} />
-      </mesh>
-      <mesh position={[-5.8, 1.25, -1.2]} visible={!game.flags.emberTaken}>
-        <icosahedronGeometry args={[0.52, 1]} />
-        <meshStandardMaterial color="#ffd08a" emissive="#ff7b2f" emissiveIntensity={4} roughness={0.2} />
-      </mesh>
-      <Warden position={[5.2, 0, -2.2]} hostile={game.relationships.warden < 0} />
-      <ArchiveGate open={game.flags.archiveGateOpen} />
-    </group>
-  );
-}
-
-function Warden({ position, hostile }) {
-  const head = useRef();
-  useFrame((state) => {
-    if (head.current) head.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.55) * 0.15;
-  });
-  return (
-    <group position={position}>
-      <mesh castShadow position={[0, 1.35, 0]}>
-        <coneGeometry args={[0.72, 2.3, 6]} />
-        <meshStandardMaterial color={hostile ? '#5b233c' : '#263650'} roughness={0.68} metalness={0.35} />
-      </mesh>
-      <mesh ref={head} castShadow position={[0, 2.75, 0]}>
-        <dodecahedronGeometry args={[0.52, 0]} />
-        <meshStandardMaterial color="#d9c4a7" roughness={0.72} />
-      </mesh>
-      <mesh castShadow position={[0.85, 1.45, 0]} rotation={[0, 0, -0.08]}>
-        <cylinderGeometry args={[0.055, 0.055, 3.8, 6]} />
-        <meshStandardMaterial color="#a9b8cf" metalness={0.8} roughness={0.2} />
-      </mesh>
-      <mesh position={[0.85, 3.4, 0]}>
-        <coneGeometry args={[0.24, 0.55, 4]} />
-        <meshStandardMaterial color="#b9f4ff" emissive="#5eeaff" emissiveIntensity={1.8} />
-      </mesh>
-    </group>
-  );
-}
-
-function ArchiveGate({ open }) {
-  const gate = useRef();
-  useFrame((_state, delta) => {
-    if (!gate.current) return;
-    gate.current.position.y = THREE.MathUtils.damp(gate.current.position.y, open ? -3.8 : 1.45, 4, delta);
-  });
-  return (
-    <group position={[0, 0, -9.9]}>
-      <mesh castShadow position={[-2.3, 1.8, 0]} scale={[0.8, 5.2, 1.1]}>
+      <mesh receiveShadow position={[0, -0.58, 0]} scale={[17, 0.9, 12]}>
         <boxGeometry />
-        <meshStandardMaterial color="#252a40" roughness={0.9} />
+        <meshStandardMaterial color="#252b3c" roughness={0.9} />
       </mesh>
-      <mesh castShadow position={[2.3, 1.8, 0]} scale={[0.8, 5.2, 1.1]}>
-        <boxGeometry />
-        <meshStandardMaterial color="#252a40" roughness={0.9} />
-      </mesh>
-      <mesh ref={gate} castShadow position={[0, 1.45, 0]} scale={[3.8, 4.5, 0.35]}>
-        <boxGeometry />
-        <meshStandardMaterial color="#141827" metalness={0.75} roughness={0.3} />
-      </mesh>
+      <SignalSpire open={game.flags.signalOpen} />
+      {!game.flags.atlasTaken && (
+        <Float speed={2} rotationIntensity={0.5} floatIntensity={0.35}>
+          <mesh position={[-5.8, 1.45, -1.2]} rotation={[0.3, 0.4, 0]}>
+            <octahedronGeometry args={[0.62, 0]} />
+            <meshStandardMaterial color="#11131c" emissive="#62e8ff" emissiveIntensity={3.8} metalness={0.7} roughness={0.18} />
+          </mesh>
+        </Float>
+      )}
+      <CrewNpc position={[5.3, 0, -2]} color="#6ab6e8" archetype="captain" visible={game.phase >= 3} />
+      <CrewNpc position={[-5.3, 0, -2]} color="#e0a95f" archetype="rogue" visible={game.phase >= 3} />
+      <StationGate open={game.flags.stationGateOpen} />
     </group>
   );
 }
 
-function Archive({ game }) {
-  return (
-    <group position={[0, 0, -32.5]}>
-      <mesh receiveShadow position={[0, -0.6, 0]} scale={[13, 0.9, 11]}>
-        <cylinderGeometry args={[1, 1.18, 1, 10]} />
-        <meshStandardMaterial color="#20283a" roughness={0.88} />
-      </mesh>
-      {[-1, 1].map((side) => (
-        <group key={side} position={[side * 7.2, 0, 0]}>
-          {Array.from({ length: 4 }, (_, index) => (
-            <mesh key={index} castShadow position={[0, 1.4 + index * 0.9, -4 + index * 2.6]} scale={[1.7, 0.34, 0.55]}>
-              <boxGeometry />
-              <meshStandardMaterial color={index % 2 ? '#364158' : '#2d3549'} roughness={0.8} />
-            </mesh>
-          ))}
-        </group>
-      ))}
-      <MemoryPool awake={game.flags.poolAwake} />
-      <mesh castShadow position={[0, 3.2, -6.6]} scale={[5.8, 6.2, 0.55]}>
-        <boxGeometry />
-        <meshStandardMaterial color="#171c2d" roughness={0.68} metalness={0.22} />
-      </mesh>
-      <mesh position={[0, 3.2, -6.25]} scale={[2.4, 2.4, 0.18]}>
-        <circleGeometry args={[1, 32]} />
-        <meshStandardMaterial color="#1a2e50" emissive="#6cf5ff" emissiveIntensity={game.flags.lensPathOpen ? 2.7 : 0.3} />
-      </mesh>
-    </group>
-  );
-}
-
-function MemoryPool({ awake }) {
-  const pool = useRef();
-  useFrame((state) => {
-    if (!pool.current) return;
-    pool.current.rotation.z = state.clock.elapsedTime * 0.08;
-    pool.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 1.4) * 0.025);
-  });
-  return (
-    <group position={[0, 0, -0.8]}>
-      <mesh receiveShadow position={[0, -0.24, 0]}>
-        <cylinderGeometry args={[2.55, 2.9, 0.55, 12]} />
-        <meshStandardMaterial color="#1a2030" roughness={0.75} metalness={0.42} />
-      </mesh>
-      <mesh ref={pool} rotation-x={-Math.PI / 2} position={[0, 0.08, 0]}>
-        <circleGeometry args={[2.25, 64]} />
-        <meshStandardMaterial
-          color="#6dd9ff"
-          emissive="#4b8dff"
-          emissiveIntensity={awake ? 3.8 : 2.2}
-          roughness={0.12}
-          metalness={0.5}
-          transparent
-          opacity={0.82}
-        />
-      </mesh>
-    </group>
-  );
-}
-
-function SolarLens({ game }) {
-  const rings = useRef();
+function SignalSpire({ open }) {
+  const crown = useRef();
   useFrame((state, delta) => {
-    if (!rings.current) return;
-    rings.current.rotation.y += delta * (game.phase >= 7 ? 0.65 : 0.18);
-    rings.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.35) * 0.12;
+    if (!crown.current) return;
+    crown.current.rotation.y += delta * (open ? 0.65 : 0.12);
+    crown.current.position.y = THREE.MathUtils.damp(crown.current.position.y, open ? 4.8 : 3.9, 4, delta);
   });
   return (
-    <group position={[0, 2.3, -41]}>
-      <mesh receiveShadow position={[0, -2.85, 0]} scale={[9.5, 0.9, 7]}>
-        <cylinderGeometry args={[1, 1.2, 1, 8]} />
-        <meshStandardMaterial color="#292f43" roughness={0.88} />
+    <group position={[0, 0, 5.2]}>
+      <mesh castShadow position={[0, 1.5, 0]}>
+        <cylinderGeometry args={[0.55, 1.1, 4.1, 7]} />
+        <meshStandardMaterial color="#353c50" metalness={0.35} roughness={0.6} />
       </mesh>
-      <group ref={rings}>
-        {[3.4, 2.45, 1.55].map((radius, index) => (
-          <mesh key={radius} rotation={[index * 0.75, index * 0.42, 0]}>
-            <torusGeometry args={[radius, 0.13 + index * 0.025, 8, 48]} />
-            <meshStandardMaterial color="#cabdff" emissive="#6d58ff" emissiveIntensity={1.6 + index} metalness={0.7} roughness={0.22} />
+      <group ref={crown} position={[0, 3.9, 0]}>
+        {[0, 1, 2].map((index) => (
+          <mesh key={index} rotation={[index * 0.9, index * 0.7, 0]}>
+            <torusGeometry args={[1.2 + index * 0.42, 0.1, 6, 32]} />
+            <meshStandardMaterial color="#a5efff" emissive="#55dfff" emissiveIntensity={open ? 2.8 : 0.8} />
           </mesh>
         ))}
       </group>
-      <Float speed={2.1} rotationIntensity={0.35} floatIntensity={0.6}>
+    </group>
+  );
+}
+
+function CrewNpc({ position, color, archetype, visible = true }) {
+  if (!visible) return null;
+  return (
+    <group position={position}>
+      <mesh castShadow position={[0, 1.25, 0]}>
+        {archetype === 'captain' ? <coneGeometry args={[0.72, 2.25, 6]} /> : <cylinderGeometry args={[0.52, 0.72, 2.2, 7]} />}
+        <meshStandardMaterial color={color} roughness={0.62} metalness={0.25} />
+      </mesh>
+      <mesh castShadow position={[0, 2.7, 0]}>
+        <dodecahedronGeometry args={[0.48, 0]} />
+        <meshStandardMaterial color="#d8c9b9" roughness={0.78} />
+      </mesh>
+      <mesh position={[0, 2.72, 0.45]} scale={[0.5, 0.12, 0.08]}>
+        <boxGeometry />
+        <meshStandardMaterial color="#c4f7ff" emissive="#5de8ff" emissiveIntensity={1.7} />
+      </mesh>
+    </group>
+  );
+}
+
+function StationGate({ open }) {
+  const gate = useRef();
+  useFrame((_state, delta) => {
+    if (!gate.current) return;
+    gate.current.position.y = THREE.MathUtils.damp(gate.current.position.y, open ? -3.8 : 1.55, 4, delta);
+  });
+  return (
+    <group position={[0, 0, -10.4]}>
+      {[-1, 1].map((side) => (
+        <mesh key={side} castShadow position={[side * 2.5, 1.8, 0]} scale={[0.8, 5.4, 1]}>
+          <boxGeometry />
+          <meshStandardMaterial color="#1d2231" roughness={0.84} />
+        </mesh>
+      ))}
+      <mesh ref={gate} castShadow position={[0, 1.55, 0]} scale={[4.2, 4.6, 0.34]}>
+        <boxGeometry />
+        <meshStandardMaterial color="#0d111d" emissive="#b64b6c" emissiveIntensity={open ? 0.1 : 0.7} metalness={0.82} roughness={0.26} />
+      </mesh>
+    </group>
+  );
+}
+
+function UnwrittenStation({ game }) {
+  return (
+    <group position={[0, 0, -32.5]}>
+      <mesh receiveShadow position={[0, -0.58, 0]} scale={[15, 0.9, 12]}>
+        <boxGeometry />
+        <meshStandardMaterial color="#222839" roughness={0.88} />
+      </mesh>
+      {[-1, 1].map((side) => (
+        <group key={side} position={[side * 7, 0, 0]}>
+          {[-4, 0, 4].map((z, index) => (
+            <mesh key={z} castShadow position={[0, 2.1, z]} scale={[1.2, 4.8, 1.2]}>
+              <boxGeometry />
+              <meshStandardMaterial color={index % 2 ? '#353145' : '#2c3347'} roughness={0.82} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      <RouteHeart taken={game.flags.routeHeartFound} />
+      <mesh castShadow position={[0, 3.2, -6.5]} scale={[6.2, 6.2, 0.5]}>
+        <boxGeometry />
+        <meshStandardMaterial color="#151925" roughness={0.58} metalness={0.34} />
+      </mesh>
+      <mesh position={[0, 3.2, -6.2]} scale={[2.8, 2.8, 0.14]}>
+        <circleGeometry args={[1, 32]} />
+        <meshStandardMaterial color="#331629" emissive="#ff4e7d" emissiveIntensity={game.flags.enginePathOpen ? 3 : 0.8} />
+      </mesh>
+    </group>
+  );
+}
+
+function RouteHeart({ taken }) {
+  const heart = useRef();
+  useFrame((state, delta) => {
+    if (!heart.current) return;
+    heart.current.rotation.y += delta * 0.8;
+    heart.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2.4) * 0.06);
+  });
+  if (taken) return null;
+  return (
+    <group position={[0, 1.25, -0.8]}>
+      <mesh castShadow position={[0, -0.45, 0]}>
+        <cylinderGeometry args={[2, 2.3, 0.6, 10]} />
+        <meshStandardMaterial color="#171d2a" metalness={0.7} roughness={0.3} />
+      </mesh>
+      <mesh ref={heart}>
+        <icosahedronGeometry args={[0.9, 1]} />
+        <meshStandardMaterial color="#ff9d64" emissive="#ff3f72" emissiveIntensity={4.5} roughness={0.15} />
+      </mesh>
+    </group>
+  );
+}
+
+function NightEngine({ game }) {
+  const rings = useRef();
+  useFrame((state, delta) => {
+    if (!rings.current) return;
+    rings.current.rotation.y += delta * (game.phase >= 6 ? 0.72 : 0.16);
+    rings.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.35) * 0.13;
+  });
+  return (
+    <group position={[0, 2.4, -41.5]}>
+      <mesh receiveShadow position={[0, -2.95, 0]} scale={[10, 0.9, 7.5]}>
+        <cylinderGeometry args={[1, 1.2, 1, 8]} />
+        <meshStandardMaterial color="#282d3e" roughness={0.86} />
+      </mesh>
+      <group ref={rings}>
+        {[3.6, 2.7, 1.8].map((radius, index) => (
+          <mesh key={radius} rotation={[index * 0.78, index * 0.43, 0]}>
+            <torusGeometry args={[radius, 0.14 + index * 0.025, 8, 48]} />
+            <meshStandardMaterial color="#ffafc1" emissive="#ff416e" emissiveIntensity={1.8 + index} metalness={0.72} roughness={0.2} />
+          </mesh>
+        ))}
+      </group>
+      <Float speed={2.2} rotationIntensity={0.28} floatIntensity={0.48}>
         <mesh>
-          <icosahedronGeometry args={[0.92, 2]} />
-          <meshStandardMaterial
-            color={game.skyMood === 'dawn' ? '#fff0ae' : '#ffb568'}
-            emissive={game.skyMood === 'ruin' ? '#ff2e74' : '#ff8c42'}
-            emissiveIntensity={5}
-            roughness={0.18}
-          />
+          <dodecahedronGeometry args={[1, 1]} />
+          <meshStandardMaterial color="#fff0df" emissive={game.skyMood === 'dawn' ? '#ffbe69' : '#ff3e70'} emissiveIntensity={5} roughness={0.16} />
         </mesh>
       </Float>
     </group>
   );
 }
 
-function DistantRuins() {
-  const ruins = useMemo(
-    () => Array.from({ length: 34 }, (_, index) => ({
-      x: Math.sin(index * 12.91) * (23 + (index % 4) * 7),
-      z: 12 - (index % 11) * 7.8,
-      y: -0.4 + (index % 3) * 0.25,
-      height: 2.5 + (index % 7) * 1.2,
-      width: 1.5 + (index % 4) * 0.6,
-      rotation: (index % 8) * 0.17,
+function DistantTrainCity() {
+  const cars = useMemo(
+    () => Array.from({ length: 28 }, (_, index) => ({
+      side: index % 2 ? -1 : 1,
+      x: (18 + (index % 5) * 6) * (index % 2 ? -1 : 1),
+      z: 9 - (index % 14) * 4.3,
+      y: -0.4 + (index % 3) * 0.2,
+      width: 3 + (index % 4),
+      height: 2.8 + (index % 6) * 0.8,
     })),
     [],
   );
   return (
     <group>
-      {ruins.map((ruin, index) => (
-        <mesh key={index} position={[ruin.x, ruin.y + ruin.height / 2, ruin.z]} rotation={[0, ruin.rotation, 0]} scale={[ruin.width, ruin.height, ruin.width]}>
+      {cars.map((car, index) => (
+        <mesh key={index} position={[car.x, car.y + car.height / 2, car.z]} scale={[car.width, car.height, 5]}>
           <boxGeometry />
-          <meshStandardMaterial color="#171b2e" roughness={0.96} />
+          <meshStandardMaterial color="#121726" emissive={index % 5 === 0 ? '#16334a' : '#121726'} emissiveIntensity={0.5} roughness={0.9} />
         </mesh>
       ))}
     </group>
   );
 }
 
-function InteractionBeacons({ game }) {
+function RuntimeWorld({ runtime }) {
   return (
     <group>
-      {INTERACTIONS.map((interaction) => {
-        const active = interaction.phase === game.phase;
-        return (
-          <Beacon key={interaction.id} position={interaction.position} active={active} />
-        );
-      })}
+      {(runtime?.entities ?? []).map((entity) => <RuntimeEntity key={entity.id} entity={entity} />)}
+      {(runtime?.hazards ?? []).map((hazard) => <RuntimeHazard key={hazard.id} hazard={hazard} />)}
     </group>
   );
 }
 
-function Beacon({ position, active }) {
+function RuntimeEntity({ entity }) {
+  const group = useRef();
+  const base = useMemo(() => new THREE.Vector3(...entity.position), [entity.position]);
+  useFrame((state, delta) => {
+    if (!group.current) return;
+    animateRuntimeObject(group.current, entity.behavior, base, state.clock.elapsedTime, delta);
+  });
+
+  return (
+    <group ref={group} position={entity.position} scale={entity.scale || [1, 1, 1]}>
+      {entity.kind === 'npc' ? (
+        <RuntimeNpc entity={entity} />
+      ) : entity.kind === 'item' ? (
+        <RuntimeItem entity={entity} />
+      ) : (
+        <RuntimeStructure entity={entity} />
+      )}
+    </group>
+  );
+}
+
+function RuntimeStructure({ entity }) {
+  const color = entity.color || '#79dfff';
+
+  if (entity.prefab === 'portal') {
+    return <mesh rotation-x={Math.PI / 2}><torusGeometry args={[1.6, 0.22, 8, 40]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>;
+  }
+  if (entity.prefab === 'crystal' || entity.prefab === 'hologram') {
+    return <mesh><icosahedronGeometry args={[1, 1]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>;
+  }
+  if (entity.prefab === 'tower') {
+    return (
+      <group>
+        <mesh position={[0, 1.3, 0]}><cylinderGeometry args={[0.65, 1, 2.6, 7]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>
+        <mesh position={[0, 3, 0]}><coneGeometry args={[1.2, 1.2, 7]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>
+      </group>
+    );
+  }
+  if (entity.prefab === 'rails') {
+    return (
+      <group>
+        {[-1, 0, 1].map((offset) => <mesh key={offset} position={[offset * 1.4, 0, 0]} scale={[0.12, 0.12, 4]}><boxGeometry /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>)}
+      </group>
+    );
+  }
+  if (entity.prefab === 'lanterns') {
+    return (
+      <group>
+        {[-2, -1, 0, 1, 2].map((offset) => <mesh key={offset} position={[offset, Math.abs(offset) * 0.25, 0]}><octahedronGeometry args={[0.3, 0]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>)}
+      </group>
+    );
+  }
+  if (entity.prefab === 'screen') {
+    return <mesh><boxGeometry args={[2.8, 1.6, 0.2]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>;
+  }
+  if (entity.prefab === 'wreck') {
+    return <mesh rotation={[0.2, 0.4, 0.12]}><boxGeometry args={[3.2, 1.4, 1.8]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>;
+  }
+  if (entity.prefab === 'bridge') {
+    return <mesh><boxGeometry args={[5, 0.4, 1.6]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>;
+  }
+  return <mesh><boxGeometry args={entity.prefab === 'barricade' ? [2.4, 1.3, 0.5] : [2.2, 0.5, 2.2]} /><RuntimeMaterial color={color} prefab={entity.prefab} /></mesh>;
+}
+
+function RuntimeMaterial({ color, prefab }) {
+  const glowing = ['portal', 'screen', 'hologram', 'crystal', 'lanterns'].includes(prefab);
+  return (
+    <meshStandardMaterial
+      color={color}
+      emissive={glowing ? color : '#000000'}
+      emissiveIntensity={glowing ? 2.2 : 0}
+      roughness={0.48}
+      metalness={0.38}
+      transparent={prefab === 'hologram'}
+      opacity={prefab === 'hologram' ? 0.55 : 1}
+    />
+  );
+}
+
+function RuntimeNpc({ entity }) {
+  const color = entity.color || '#dcecff';
+  return (
+    <group>
+      <mesh castShadow position={[0, 1.15, 0]}>
+        {entity.archetype === 'conductor' ? <coneGeometry args={[0.7, 2.2, 6]} /> : <cylinderGeometry args={[0.45, 0.68, 2.1, 7]} />}
+        <meshStandardMaterial color={color} emissive={entity.archetype === 'ghost' || entity.archetype === 'machine' ? color : '#000000'} emissiveIntensity={1.2} roughness={0.58} metalness={0.3} />
+      </mesh>
+      <mesh castShadow position={[0, 2.55, 0]}>
+        <dodecahedronGeometry args={[0.45, 0]} />
+        <meshStandardMaterial color="#ddd4c8" roughness={0.72} />
+      </mesh>
+      <pointLight color={color} intensity={1.4} distance={4} position={[0, 1.8, 0]} />
+    </group>
+  );
+}
+
+function RuntimeItem({ entity }) {
+  const color = entity.color || '#ffd17a';
+  return (
+    <group>
+      <mesh castShadow>
+        <octahedronGeometry args={[0.62, 0]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} roughness={0.2} metalness={0.45} />
+      </mesh>
+      <pointLight color={color} intensity={2} distance={4} />
+    </group>
+  );
+}
+
+function RuntimeHazard({ hazard }) {
+  const group = useRef();
+  const base = useMemo(() => new THREE.Vector3(...hazard.position), [hazard.position]);
+  useFrame((state, delta) => {
+    if (!group.current) return;
+    animateRuntimeObject(group.current, hazard.behavior, base, state.clock.elapsedTime, delta);
+  });
+  const color = hazard.color || '#ff668e';
+  return (
+    <group ref={group} position={hazard.position}>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[hazard.radius * 0.72, 0.11, 7, 36]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3.6} transparent opacity={0.78} />
+      </mesh>
+      <mesh>
+        <icosahedronGeometry args={[hazard.radius * 0.28, 1]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.8} transparent opacity={0.62} />
+      </mesh>
+      <pointLight color={color} intensity={3} distance={hazard.radius * 3.2} />
+    </group>
+  );
+}
+
+function animateRuntimeObject(object, behavior, base, time, delta) {
+  if (behavior === 'spin') object.rotation.y += delta * 0.9;
+  if (behavior === 'float') object.position.y = base.y + Math.sin(time * 1.5) * 0.3;
+  if (behavior === 'pulse') object.scale.setScalar(1 + Math.sin(time * 2.4) * 0.08);
+  if (behavior === 'orbit') {
+    object.position.x = base.x + Math.cos(time * 0.8) * 0.65;
+    object.position.z = base.z + Math.sin(time * 0.8) * 0.65;
+    object.rotation.y += delta * 0.5;
+  }
+  if (behavior === 'flicker') object.visible = Math.sin(time * 17) > -0.72;
+}
+
+function InteractionBeacons({ interactions }) {
+  return (
+    <group>
+      {interactions.map((interaction) => (
+        <Beacon key={interaction.id} position={interaction.position} runtime={interaction.runtime} />
+      ))}
+    </group>
+  );
+}
+
+function Beacon({ position, runtime }) {
   const ring = useRef();
   useFrame((state, delta) => {
     if (!ring.current) return;
-    ring.current.rotation.z += delta * 0.7;
-    ring.current.position.y = 0.3 + Math.sin(state.clock.elapsedTime * 2) * 0.1;
+    ring.current.rotation.z += delta * (runtime ? 1.2 : 0.72);
+    ring.current.position.y = 0.35 + Math.sin(state.clock.elapsedTime * 2) * 0.1;
   });
-  if (!active) return null;
   return (
     <group position={[position[0], 0, position[2]]}>
-      <mesh ref={ring} rotation-x={-Math.PI / 2} position-y={0.3}>
-        <torusGeometry args={[0.7, 0.055, 6, 32]} />
-        <meshStandardMaterial color="#e8fbff" emissive="#5eeaff" emissiveIntensity={4} />
+      <mesh ref={ring} rotation-x={-Math.PI / 2} position-y={0.35}>
+        <torusGeometry args={[runtime ? 0.55 : 0.72, 0.055, 6, 32]} />
+        <meshStandardMaterial color={runtime ? '#ffd47e' : '#e8fbff'} emissive={runtime ? '#ff9d50' : '#5eeaff'} emissiveIntensity={4} />
       </mesh>
-      <pointLight position={[0, 0.8, 0]} color="#6cf5ff" intensity={2.5} distance={4} />
+      <pointLight position={[0, 0.8, 0]} color={runtime ? '#ffb15f' : '#6cf5ff'} intensity={2.4} distance={4} />
     </group>
   );
 }
 
 function moodColor(mood) {
   return {
-    twilight: '#090b18',
-    storm: '#101428',
-    calm: '#11182b',
-    moths: '#171329',
-    archive: '#071b28',
-    lens: '#17102c',
-    dawn: '#6f6b7f',
-    goldTwilight: '#39283b',
-    ruin: '#240817',
-  }[mood] ?? '#090b18';
+    nightStorm: '#050712',
+    signal: '#071625',
+    fortress: '#101728',
+    impossible: '#190f2b',
+    blank: '#777c88',
+    station: '#11101d',
+    overdrive: '#03192a',
+    memory: '#24182a',
+    awake: '#0e2030',
+    engine: '#260916',
+    dawn: '#827069',
+    perfectNight: '#071023',
+    manyRoads: '#173147',
+  }[mood] ?? '#050712';
 }

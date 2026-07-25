@@ -4,37 +4,46 @@ import {
   getCanonicalBeat,
   mergeGeneratedBeat,
 } from '../../server/storyEngine.js';
+import {
+  applyWorldOps,
+  createRuntimeWorld,
+  markRuntimeInteractionUsed,
+} from './runtimeWorld.js';
 
 const STORY_API_BASE = String(import.meta.env.VITE_STORY_API_URL || '').replace(/\/$/, '');
 const IS_GITHUB_PAGES = typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
 const FIREWORKS_ENDPOINT = 'https://api.fireworks.ai/inference/v1/chat/completions';
 const FIREWORKS_MODEL = 'accounts/fireworks/models/deepseek-v4-flash';
 
-const INITIAL_GAME = {
-  started: false,
-  loading: false,
-  health: 100,
-  phase: 0,
-  location: 'The waking jetty',
-  inventory: [],
-  relationships: { warden: 0, archivist: 0 },
-  flags: {},
-  objective: 'Wake the lantern.',
-  choices: [],
-  log: [],
-  summary: '',
-  streamText: '',
-  warning: '',
-  ending: null,
-  skyMood: 'twilight',
-  apiMode: 'unknown',
-};
+function createInitialGame(started = false) {
+  return {
+    started,
+    loading: false,
+    health: 100,
+    phase: 0,
+    location: 'Rear service deck',
+    inventory: [],
+    relationships: { mara: 0, quill: 0, train: 0 },
+    flags: {},
+    objective: 'Wake aboard the Night Engine.',
+    choices: [],
+    log: [],
+    summary: '',
+    streamText: '',
+    warning: '',
+    ending: null,
+    skyMood: 'nightStorm',
+    apiMode: 'unknown',
+    runtime: createRuntimeWorld(),
+  };
+}
 
 export function useStoryGame(onBeat, fireworksApiKey = '') {
-  const [game, setGame] = useState(INITIAL_GAME);
+  const [game, setGame] = useState(() => createInitialGame(false));
   const gameRef = useRef(game);
   const requestRef = useRef(null);
   const keyRef = useRef(fireworksApiKey);
+  const hazardCooldowns = useRef(new Map());
 
   useEffect(() => {
     gameRef.current = game;
@@ -49,6 +58,38 @@ export function useStoryGame(onBeat, fireworksApiKey = '') {
     setGame((current) => ({ ...current, location }));
   }, []);
 
+  const hitHazard = useCallback((hazardId, rawDamage) => {
+    const now = Date.now();
+    const lastHit = hazardCooldowns.current.get(hazardId) || 0;
+    if (now - lastHit < 1100) return;
+    hazardCooldowns.current.set(hazardId, now);
+
+    const damage = Math.max(1, Math.min(25, Number(rawDamage) || 5));
+    setGame((current) => {
+      if (current.ending) return current;
+      const health = Math.max(0, current.health - damage);
+      if (health > 0) {
+        return {
+          ...current,
+          health,
+          warning: `The route struck back. Resolve -${damage}.`,
+        };
+      }
+      return {
+        ...current,
+        health: 0,
+        loading: false,
+        choices: [],
+        ending: {
+          result: 'lose',
+          title: 'ERASED BY THE BLANK',
+          text: 'The route learned your shape and removed it. Restart to write a different path.',
+        },
+        skyMood: 'blank',
+      };
+    });
+  }, []);
+
   const sendAction = useCallback(
     async (action) => {
       if (!action || gameRef.current.loading || gameRef.current.ending) return;
@@ -57,9 +98,15 @@ export function useStoryGame(onBeat, fireworksApiKey = '') {
       const controller = new AbortController();
       requestRef.current = controller;
 
-      const snapshot = gameRef.current;
+      const originalSnapshot = gameRef.current;
+      const runtime = markRuntimeInteractionUsed(originalSnapshot.runtime, action);
+      const snapshot = runtime === originalSnapshot.runtime
+        ? originalSnapshot
+        : { ...originalSnapshot, runtime };
+
       setGame((current) => ({
         ...current,
+        runtime: markRuntimeInteractionUsed(current.runtime, action),
         loading: true,
         streamText: '',
         warning: '',
@@ -87,7 +134,7 @@ export function useStoryGame(onBeat, fireworksApiKey = '') {
         await runStoryServer(action, snapshot, controller.signal, setGame, onBeat);
       } catch (error) {
         if (error.name !== 'AbortError') {
-          console.error('[Lumenwake] Live story request failed. Falling back offline.');
+          console.error('[Lumenwake] Live director failed. Using the safe local route.');
           await runLocalStory(
             action,
             snapshot,
@@ -112,11 +159,19 @@ export function useStoryGame(onBeat, fireworksApiKey = '') {
 
   const restartGame = useCallback(() => {
     requestRef.current?.abort();
-    setGame({ ...INITIAL_GAME, started: true });
+    hazardCooldowns.current.clear();
+    setGame(createInitialGame(true));
     window.setTimeout(() => sendAction('begin'), 80);
   }, [sendAction]);
 
-  return { game, sendAction, startGame, restartGame, updateLocation };
+  return {
+    game,
+    sendAction,
+    startGame,
+    restartGame,
+    updateLocation,
+    hitHazard,
+  };
 }
 
 async function runStoryServer(action, snapshot, signal, setGame, onBeat) {
@@ -172,8 +227,8 @@ async function runBrowserFireworks(action, snapshot, apiKey, signal, setGame, on
     body: JSON.stringify({
       model: FIREWORKS_MODEL,
       stream: true,
-      temperature: 0.82,
-      max_tokens: 520,
+      temperature: 0.78,
+      max_tokens: 950,
       reasoning_effort: 'none',
       messages: [
         { role: 'system', content: buildSystemPrompt(canonical) },
@@ -247,7 +302,8 @@ function stateForRequest(snapshot) {
     flags: snapshot.flags,
     objective: snapshot.objective,
     summary: snapshot.summary,
-    recentBeats: snapshot.log.slice(-3).map((entry) => entry.narration),
+    recentBeats: snapshot.log.slice(-4).map((entry) => entry.narration),
+    runtime: snapshot.runtime,
   };
 }
 
@@ -263,8 +319,8 @@ async function runLocalStory(
   const canonical = getCanonicalBeat(action, stateForRequest(snapshot));
   const beat = mergeGeneratedBeat(canonical, {});
   const warning = warningOverride || (pagesMode
-    ? 'Add a Fireworks key from the HUD to enable live story generation. The complete offline director is active for now.'
-    : 'The live story service could not be reached, so the offline story director took over.');
+    ? 'Add a Fireworks key to let DeepSeek invent live route events. The complete handcrafted adventure is active for now.'
+    : 'The live director could not be reached, so the handcrafted route took over this beat.');
 
   setGame((current) => ({
     ...current,
@@ -276,7 +332,7 @@ async function runLocalStory(
   for (const word of beat.narration.split(/(\s+)/)) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     setGame((current) => ({ ...current, streamText: `${current.streamText}${word}` }));
-    await sleep(10);
+    await sleep(9);
   }
 
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -289,9 +345,9 @@ function friendlyRequestError(error) {
     return 'Fireworks rejected this API key. Open API key settings, paste a valid key, and try the next interaction.';
   }
   if (error?.status === 402 || error?.status === 429) {
-    return 'The Fireworks account has no available quota right now, so the offline story director took over.';
+    return 'The Fireworks account has no available quota, so the handcrafted route took over.';
   }
-  return 'Fireworks could not be reached from this browser, so the offline story director took over this beat.';
+  return 'Fireworks could not be reached from this browser, so the handcrafted route took over this beat.';
 }
 
 function extractPartialStory(text) {
@@ -355,14 +411,15 @@ function applyBeat(game, beat) {
     choices: Array.isArray(beat.choices) ? beat.choices : [],
     summary: beat.summary || `${beat.speaker}: ${beat.narration}`,
     ending: beat.ending ?? game.ending,
+    runtime: applyWorldOps(game.runtime, beat.worldOps),
     log: [
       ...game.log,
       {
-        speaker: beat.speaker || 'The Lantern',
+        speaker: beat.speaker || 'Atlas Key',
         narration: beat.narration || '',
         dialogue: beat.dialogue || '',
       },
-    ].slice(-12),
+    ].slice(-14),
   };
 
   for (const effect of beat.effects ?? []) {
