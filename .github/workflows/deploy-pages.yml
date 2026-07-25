@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  pull_request_target:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +22,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout trusted main for deployment trigger
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Checkout event source
+        if: github.event_name != 'pull_request_target'
         uses: actions/checkout@v4
 
       - name: Set up Node
