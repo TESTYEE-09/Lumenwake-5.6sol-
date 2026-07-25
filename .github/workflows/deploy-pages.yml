@@ -30,10 +30,36 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
 
+      - name: Ensure GitHub Pages is enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/pages"
+          headers=(
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${GH_TOKEN}"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          status=$(curl -sS -o /tmp/pages.json -w "%{http_code}" "${headers[@]}" "$api")
+          if [ "$status" = "404" ]; then
+            curl --fail-with-body -sS -X POST "${headers[@]}" "$api" \
+              -d '{"build_type":"workflow"}'
+          elif [ "$status" = "200" ]; then
+            curl --fail-with-body -sS -X PUT "${headers[@]}" "$api" \
+              -d '{"build_type":"workflow"}'
+          else
+            cat /tmp/pages.json
+            exit 1
+          fi
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
