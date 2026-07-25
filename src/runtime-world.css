@@ -1,0 +1,40 @@
+.route-journal {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 207, 126, 0.15);
+  background: rgba(255, 164, 75, 0.055);
+  display: grid;
+  gap: 3px;
+}
+
+.route-journal strong {
+  color: #ffd49a;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.route-journal span {
+  color: #aeb9d0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.mode-fireworks-personal,
+.mode-fireworks {
+  color: #baffd4;
+  border-color: rgba(100, 255, 167, 0.26);
+  background: rgba(67, 255, 151, 0.08);
+}
+
+.mode-pages-offline,
+.mode-offline {
+  color: #ffdea8;
+  border-color: rgba(255, 193, 91, 0.25);
+  background: rgba(255, 160, 62, 0.08);
+}
+
+@media (max-width: 780px) {
+  .route-journal { display: none; }
+}

@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 
 app.use(cors());
-app.use(express.json({ limit: '80kb' }));
+app.use(express.json({ limit: '100kb' }));
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -45,7 +45,7 @@ app.post('/api/story', async (req, res) => {
   } catch (error) {
     console.error('[story] Fireworks request failed:', error);
     sendEvent(res, 'warning', {
-      message: 'Fireworks was unavailable, so the local story director took over this beat.',
+      message: 'Fireworks was unavailable, so the handcrafted route took over this beat.',
     });
     await streamFallback(res, canonical);
   }
@@ -92,7 +92,7 @@ async function streamFallback(res, canonical) {
   const words = canonical.narration.split(/(\s+)/);
   for (const word of words) {
     sendEvent(res, 'token', { text: word });
-    await sleep(12);
+    await sleep(10);
   }
   const beat = mergeGeneratedBeat(canonical, {});
   sendEvent(res, 'story', beat);
@@ -112,8 +112,9 @@ async function streamFireworks(res, action, state, canonical) {
     body: JSON.stringify({
       model,
       stream: true,
-      temperature: 0.82,
-      max_tokens: 520,
+      temperature: 0.78,
+      max_tokens: 950,
+      reasoning_effort: 'none',
       messages: [
         { role: 'system', content: buildSystemPrompt(canonical) },
         {

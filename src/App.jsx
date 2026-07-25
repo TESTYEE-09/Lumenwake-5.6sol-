@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import './api-key.css';
+import './runtime-world.css';
 import { ApiKeyOverlay } from './components/ApiKeyOverlay.jsx';
 import { ChoiceOverlay } from './components/ChoiceOverlay.jsx';
 import { EndingOverlay } from './components/EndingOverlay.jsx';
@@ -23,7 +24,14 @@ export default function App() {
     audio.chime(beat.ending ? 'ending' : beat.choices?.length ? 'choice' : 'story');
   }, [audio]);
 
-  const { game, sendAction, startGame, restartGame, updateLocation } = useStoryGame(handleBeat, fireworksKey);
+  const {
+    game,
+    sendAction,
+    startGame,
+    restartGame,
+    updateLocation,
+    hitHazard,
+  } = useStoryGame(handleBeat, fireworksKey);
 
   useEffect(() => {
     audio.setMood(game.skyMood);
@@ -87,7 +95,12 @@ export default function App() {
 
   return (
     <main className={`app mood-${game.skyMood}`}>
-      <World game={game} onFocus={setFocus} onPosition={handlePosition} />
+      <World
+        game={game}
+        onFocus={setFocus}
+        onPosition={handlePosition}
+        onHazard={hitHazard}
+      />
       {game.started && (
         <HUD
           game={game}
@@ -124,8 +137,8 @@ function readStoredKey() {
 }
 
 function zoneFromZ(z) {
-  if (z > -7) return 'The waking jetty';
-  if (z > -24) return 'The drowned observatory';
-  if (z > -38) return 'The forbidden archive';
-  return 'The Solar Lens';
+  if (z > -7) return 'Rear service deck';
+  if (z > -24) return 'Signal yard';
+  if (z > -38) return 'Unwritten Station';
+  return 'Night Engine crown';
 }
