@@ -1,0 +1,60 @@
+name: Apply runtime world patch
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply patch archive
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d .runtime-patch ]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cat .runtime-patch/part* | base64 -d > /tmp/runtime-patch.tar.gz
+          echo "21313d54c9271c3896162341a42a31b3110c060e6159cd5733b93e9835ac75e5  /tmp/runtime-patch.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/runtime-patch.tar.gz -C .
+          rm -rf .runtime-patch
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        if: steps.patch.outputs.applied == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        if: steps.patch.outputs.applied == 'true'
+        run: npm install --no-audit --no-fund
+
+      - name: Build game
+        if: steps.patch.outputs.applied == 'true'
+        run: npm run build
+
+      - name: Commit expanded source
+        if: steps.patch.outputs.applied == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add live runtime world director"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
