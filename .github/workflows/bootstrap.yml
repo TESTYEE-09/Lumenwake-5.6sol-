@@ -1,27 +1,20 @@
-name: Bootstrap Lumenwake and deploy
+name: Validate Lumenwake source
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
-  group: lumenwake-${{ github.ref }}
+  group: validate-lumenwake-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  bootstrap:
+  validate:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout source branch
         uses: actions/checkout@v4
@@ -29,24 +22,26 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Expand complete source
+      - name: Expand complete source when needed
         shell: bash
         run: |
-          cat .bootstrap/source.part* | base64 --decode > /tmp/lumenwake.zip
-          rm -rf /tmp/lumenwake-source
-          mkdir -p /tmp/lumenwake-source
-          unzip -q /tmp/lumenwake.zip -d /tmp/lumenwake-source
-          rsync -a --delete \
-            --exclude='.git/' \
-            --exclude='.bootstrap/' \
-            --exclude='.github/workflows/bootstrap.yml' \
-            --exclude='.github/workflows/deploy-pages.yml' \
-            /tmp/lumenwake-source/lumenwake/ ./
+          if [ -d .bootstrap ]; then
+            cat .bootstrap/source.part* | base64 --decode > /tmp/lumenwake.zip
+            rm -rf /tmp/lumenwake-source
+            mkdir -p /tmp/lumenwake-source
+            unzip -q /tmp/lumenwake.zip -d /tmp/lumenwake-source
+            rsync -a --delete \
+              --exclude='.git/' \
+              --exclude='.bootstrap/' \
+              --exclude='.github/workflows/bootstrap.yml' \
+              --exclude='.github/workflows/deploy-pages.yml' \
+              /tmp/lumenwake-source/lumenwake/ ./
+          fi
 
-      - name: Commit full source
+      - name: Commit expanded source when needed
         shell: bash
         env:
-          TARGET_BRANCH: ${{ github.head_ref || 'main' }}
+          TARGET_BRANCH: ${{ github.head_ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -68,18 +63,3 @@ jobs:
         run: npm run build
         env:
           VITE_STORY_API_URL: ${{ vars.VITE_STORY_API_URL }}
-
-      - name: Configure Pages
-        if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: ./dist
-
-      - name: Deploy to Pages
-        if: github.event_name != 'pull_request'
-        id: deployment
-        uses: actions/deploy-pages@v4
