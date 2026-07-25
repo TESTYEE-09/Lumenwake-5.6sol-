@@ -1,4 +1,4 @@
-export function HUD({ game, focus, position, muted, onToggleMute }) {
+export function HUD({ game, focus, position, muted, hasFireworksKey, onToggleMute, onOpenApiKey }) {
   const latest = game.log.at(-1);
   const healthPercent = Math.max(0, Math.min(100, game.health));
 
@@ -24,7 +24,13 @@ export function HUD({ game, focus, position, muted, onToggleMute }) {
       </section>
 
       <section className="map-panel glass-panel" aria-label="Minimap">
-        <div className="map-title"><span>Memory map</span><button type="button" onClick={onToggleMute}>{muted ? 'Sound off' : 'Sound on'}</button></div>
+        <div className="map-title">
+          <span>Memory map</span>
+          <div className="map-actions">
+            <button type="button" onClick={onToggleMute}>{muted ? 'Sound off' : 'Sound on'}</button>
+            <button type="button" onClick={onOpenApiKey}>{hasFireworksKey ? 'API key' : 'Add key'}</button>
+          </div>
+        </div>
         <div className="minimap">
           <div className="map-path" />
           <MapMarker x={50} y={10} label="Jetty" active={game.phase <= 1} />
@@ -70,6 +76,7 @@ function MapMarker({ x, y, label, active }) {
 }
 
 function modeLabel(mode) {
+  if (mode === 'fireworks-personal') return 'Personal Fireworks';
   if (mode === 'fireworks') return 'Fireworks live';
   if (mode === 'pages-offline') return 'Pages offline';
   if (mode === 'offline') return 'Offline story';
