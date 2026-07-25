@@ -3,6 +3,8 @@ name: Bootstrap Lumenwake and deploy
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: lumenwake-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -31,17 +33,23 @@ jobs:
           rm -rf /tmp/lumenwake-source
           mkdir -p /tmp/lumenwake-source
           unzip -q /tmp/lumenwake.zip -d /tmp/lumenwake-source
-          rsync -a --delete --exclude='.git/' /tmp/lumenwake-source/lumenwake/ ./
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.bootstrap/' \
+            --exclude='.github/workflows/bootstrap.yml' \
+            /tmp/lumenwake-source/lumenwake/ ./
 
       - name: Commit full source
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.head_ref || 'main' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --cached --quiet; then
             git commit -m "Add Lumenwake Fireworks game and Pages deployment"
-            git push origin HEAD:main
+            git push origin "HEAD:${TARGET_BRANCH}"
           fi
 
       - name: Set up Node
@@ -58,13 +66,16 @@ jobs:
           VITE_STORY_API_URL: ${{ vars.VITE_STORY_API_URL }}
 
       - name: Configure Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v4
         with:
           path: ./dist
 
       - name: Deploy to Pages
+        if: github.event_name != 'pull_request'
         id: deployment
         uses: actions/deploy-pages@v4
