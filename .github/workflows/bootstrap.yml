@@ -1,0 +1,70 @@
+name: Bootstrap Lumenwake and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Expand complete source
+        shell: bash
+        run: |
+          cat .bootstrap/source.part* | base64 --decode > /tmp/lumenwake.zip
+          rm -rf /tmp/lumenwake-source
+          mkdir -p /tmp/lumenwake-source
+          unzip -q /tmp/lumenwake.zip -d /tmp/lumenwake-source
+          rsync -a --delete --exclude='.git/' /tmp/lumenwake-source/lumenwake/ ./
+
+      - name: Commit full source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Add Lumenwake Fireworks game and Pages deployment"
+            git push origin HEAD:main
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build game
+        run: npm run build
+        env:
+          VITE_STORY_API_URL: ${{ vars.VITE_STORY_API_URL }}
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./dist
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
