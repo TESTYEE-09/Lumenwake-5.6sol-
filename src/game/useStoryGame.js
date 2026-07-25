@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCanonicalBeat, mergeGeneratedBeat } from '../../server/storyEngine.js';
+import {
+  buildSystemPrompt,
+  getCanonicalBeat,
+  mergeGeneratedBeat,
+} from '../../server/storyEngine.js';
 
 const STORY_API_BASE = String(import.meta.env.VITE_STORY_API_URL || '').replace(/\/$/, '');
 const IS_GITHUB_PAGES = typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+const FIREWORKS_ENDPOINT = 'https://api.fireworks.ai/inference/v1/chat/completions';
+const FIREWORKS_MODEL = 'accounts/fireworks/models/deepseek-v4-flash';
 
 const INITIAL_GAME = {
   started: false,
@@ -24,14 +30,19 @@ const INITIAL_GAME = {
   apiMode: 'unknown',
 };
 
-export function useStoryGame(onBeat) {
+export function useStoryGame(onBeat, fireworksApiKey = '') {
   const [game, setGame] = useState(INITIAL_GAME);
   const gameRef = useRef(game);
   const requestRef = useRef(null);
+  const keyRef = useRef(fireworksApiKey);
 
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
+
+  useEffect(() => {
+    keyRef.current = fireworksApiKey;
+  }, [fireworksApiKey]);
 
   const updateLocation = useCallback((location) => {
     if (!location || gameRef.current.location === location) return;
@@ -56,44 +67,36 @@ export function useStoryGame(onBeat) {
       }));
 
       try {
+        if (!STORY_API_BASE && keyRef.current) {
+          await runBrowserFireworks(
+            action,
+            snapshot,
+            keyRef.current,
+            controller.signal,
+            setGame,
+            onBeat,
+          );
+          return;
+        }
+
         if (IS_GITHUB_PAGES && !STORY_API_BASE) {
           await runLocalStory(action, snapshot, controller.signal, setGame, onBeat, true);
           return;
         }
 
-        const response = await fetch(`${STORY_API_BASE}/api/story`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            action,
-            state: stateForRequest(snapshot),
-          }),
-        });
-
-        if (!response.ok || !response.body) {
-          throw new Error(`Story server returned ${response.status}`);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const packets = buffer.split('\n\n');
-          buffer = packets.pop() ?? '';
-
-          for (const packet of packets) {
-            handlePacket(packet, setGame, onBeat);
-          }
-        }
+        await runStoryServer(action, snapshot, controller.signal, setGame, onBeat);
       } catch (error) {
         if (error.name !== 'AbortError') {
-          console.error(error);
-          await runLocalStory(action, snapshot, controller.signal, setGame, onBeat, false);
+          console.error('[Lumenwake] Live story request failed. Falling back offline.');
+          await runLocalStory(
+            action,
+            snapshot,
+            controller.signal,
+            setGame,
+            onBeat,
+            false,
+            friendlyRequestError(error),
+          );
         }
       } finally {
         requestRef.current = null;
@@ -116,6 +119,124 @@ export function useStoryGame(onBeat) {
   return { game, sendAction, startGame, restartGame, updateLocation };
 }
 
+async function runStoryServer(action, snapshot, signal, setGame, onBeat) {
+  const response = await fetch(`${STORY_API_BASE}/api/story`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+    body: JSON.stringify({
+      action,
+      state: stateForRequest(snapshot),
+    }),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`Story server returned ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const packets = buffer.split('\n\n');
+    buffer = packets.pop() ?? '';
+
+    for (const packet of packets) {
+      handlePacket(packet, setGame, onBeat);
+    }
+  }
+}
+
+async function runBrowserFireworks(action, snapshot, apiKey, signal, setGame, onBeat) {
+  const state = stateForRequest(snapshot);
+  const canonical = getCanonicalBeat(action, state);
+
+  setGame((current) => ({
+    ...current,
+    apiMode: 'fireworks-personal',
+    streamText: '',
+    warning: '',
+  }));
+
+  const response = await fetch(FIREWORKS_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal,
+    body: JSON.stringify({
+      model: FIREWORKS_MODEL,
+      stream: true,
+      temperature: 0.82,
+      max_tokens: 520,
+      reasoning_effort: 'none',
+      messages: [
+        { role: 'system', content: buildSystemPrompt(canonical) },
+        { role: 'user', content: JSON.stringify({ action, playerState: state }) },
+      ],
+    }),
+  });
+
+  if (!response.ok || !response.body) {
+    const error = new Error(`Fireworks returned ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let networkBuffer = '';
+  let fullText = '';
+  let emittedStoryLength = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    networkBuffer += decoder.decode(value, { stream: true });
+
+    const lines = networkBuffer.split('\n');
+    networkBuffer = lines.pop() ?? '';
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+
+      let json;
+      try {
+        json = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+
+      const token = json?.choices?.[0]?.delta?.content;
+      if (typeof token !== 'string' || !token) continue;
+      fullText += token;
+
+      const streamedStory = extractPartialStory(fullText);
+      if (streamedStory.length > emittedStoryLength) {
+        const nextText = streamedStory.slice(emittedStoryLength);
+        emittedStoryLength = streamedStory.length;
+        setGame((current) => ({
+          ...current,
+          streamText: `${current.streamText}${nextText}`,
+        }));
+      }
+    }
+  }
+
+  const generated = parseProtocol(fullText);
+  const beat = mergeGeneratedBeat(canonical, generated);
+  setGame((current) => applyBeat(current, beat));
+  onBeat?.(beat);
+}
+
 function stateForRequest(snapshot) {
   return {
     phase: snapshot.phase,
@@ -130,12 +251,20 @@ function stateForRequest(snapshot) {
   };
 }
 
-async function runLocalStory(action, snapshot, signal, setGame, onBeat, pagesMode) {
+async function runLocalStory(
+  action,
+  snapshot,
+  signal,
+  setGame,
+  onBeat,
+  pagesMode,
+  warningOverride = '',
+) {
   const canonical = getCanonicalBeat(action, stateForRequest(snapshot));
   const beat = mergeGeneratedBeat(canonical, {});
-  const warning = pagesMode
-    ? 'GitHub Pages cannot safely store an API key, so this hosted build is using the complete offline story director.'
-    : 'The live story server could not be reached, so the offline story director took over.';
+  const warning = warningOverride || (pagesMode
+    ? 'Add a Fireworks key from the HUD to enable live story generation. The complete offline director is active for now.'
+    : 'The live story service could not be reached, so the offline story director took over.');
 
   setGame((current) => ({
     ...current,
@@ -153,6 +282,39 @@ async function runLocalStory(action, snapshot, signal, setGame, onBeat, pagesMod
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
   setGame((current) => applyBeat(current, beat));
   onBeat?.(beat);
+}
+
+function friendlyRequestError(error) {
+  if (error?.status === 401 || error?.status === 403) {
+    return 'Fireworks rejected this API key. Open API key settings, paste a valid key, and try the next interaction.';
+  }
+  if (error?.status === 402 || error?.status === 429) {
+    return 'The Fireworks account has no available quota right now, so the offline story director took over.';
+  }
+  return 'Fireworks could not be reached from this browser, so the offline story director took over this beat.';
+}
+
+function extractPartialStory(text) {
+  const startTag = '<story>';
+  const start = text.indexOf(startTag);
+  if (start === -1) return '';
+  const bodyStart = start + startTag.length;
+  const end = text.indexOf('</story>', bodyStart);
+  return text.slice(bodyStart, end === -1 ? undefined : end);
+}
+
+function parseProtocol(text) {
+  const story = text.match(/<story>([\s\S]*?)<\/story>/i)?.[1]?.trim();
+  const rawState = text.match(/<state>([\s\S]*?)<\/state>/i)?.[1]?.trim();
+  let state = {};
+  if (rawState) {
+    try {
+      state = JSON.parse(rawState);
+    } catch {
+      state = {};
+    }
+  }
+  return { ...state, narration: story };
 }
 
 function handlePacket(packet, setGame, onBeat) {
