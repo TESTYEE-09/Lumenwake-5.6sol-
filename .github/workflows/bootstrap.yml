@@ -40,6 +40,7 @@ jobs:
             --exclude='.git/' \
             --exclude='.bootstrap/' \
             --exclude='.github/workflows/bootstrap.yml' \
+            --exclude='.github/workflows/deploy-pages.yml' \
             /tmp/lumenwake-source/lumenwake/ ./
 
       - name: Commit full source
@@ -51,7 +52,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "Add Lumenwake Fireworks game and Pages deployment"
+            git commit -m "Add Lumenwake Fireworks game source"
             git push origin "HEAD:${TARGET_BRANCH}"
           fi
 
